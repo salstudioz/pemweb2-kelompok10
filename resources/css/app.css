@@ -1,0 +1,27 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+@layer base {
+    html { scroll-behavior: smooth; }
+    body { @apply bg-sigmaven-cream text-sigmaven-charcoal font-sans antialiased; }
+    *:focus-visible { @apply outline-2 outline-sigmaven-forest outline-offset-2; }
+    ::selection { @apply bg-sigmaven-gold/30 text-sigmaven-charcoal; }
+}
+
+@layer components {
+    .btn { @apply inline-flex items-center justify-center px-4 py-2 rounded-sm font-medium transition-transform hover:scale-105 active:scale-95; }
+    .btn-primary { @apply bg-sigmaven-forest text-white hover:bg-sigmaven-forest-dark focus:ring-2 focus:ring-sigmaven-forest/50; }
+    .btn-secondary { @apply border border-sigmaven-border text-sigmaven-charcoal hover:bg-sigmaven-cream; }
+    .btn-accent { @apply bg-sigmaven-gold text-white hover:bg-sigmaven-gold-dark; }
+    .btn-danger { @apply bg-red-500 text-white hover:bg-red-600; }
+    .card { @apply bg-white rounded-sm shadow-card hover:shadow-card-hover transition; }
+    .section-title { @apply text-2xl md:text-3xl font-serif font-bold text-sigmaven-forest mb-6; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+@layer utilities {
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+}
