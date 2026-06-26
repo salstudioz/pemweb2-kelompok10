@@ -41,7 +41,7 @@ The application incorporates various advanced features tailored for modern web a
 
 1. **Clone the repository:**
    ```bash
-   git clone (https://github.com/salstudioz/pemweb2-kelompok10)
+   git clone https://github.com/salstudioz/pemweb2-kelompok10
    cd sigmaven
    ```
 
