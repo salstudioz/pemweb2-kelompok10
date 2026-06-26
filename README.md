@@ -1,223 +1,112 @@
-<p align="center">
-  <img src="public/images/logo.png" alt="Sigmaven Logo" width="120">
-</p>
+<p align="center"><img src="public/images/logofix.png" width="400" alt="Sigmaven Logo"></p>
 
-<h1 align="center">Sigmaven</h1>
+# Sigmaven
 
-<p align="center">
-  Platform literasi modern — toko buku, game edukasi, dan lelang buku langka dalam satu ekosistem.
-</p>
+Sigmaven is the final project for the Web Programming 2 course (Kelompok 10). It is a full-stack e-commerce and interactive platform built on top of Laravel, Livewire, and Tailwind CSS. 
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Laravel-13.x-FF2D20?style=flat&logo=laravel&logoColor=white" alt="Laravel">
-  <img src="https://img.shields.io/badge/Livewire-4.x-FB70A9?style=flat&logo=livewire&logoColor=white" alt="Livewire">
-  <img src="https://img.shields.io/badge/Alpine.js-3.x-77C1D2?style=flat&logo=alpine.js&logoColor=white" alt="Alpine.js">
-  <img src="https://img.shields.io/badge/Tailwind_CSS-3.x-38B2AC?style=flat&logo=tailwind-css&logoColor=white" alt="Tailwind CSS">
-  <img src="https://img.shields.io/badge/PHP-8.3-777BB4?style=flat&logo=php&logoColor=white" alt="PHP">
-</p>
+## 🚀 Features
 
----
+The application incorporates various advanced features tailored for modern web applications:
 
-## 📖 Tentang Sigmaven
+### 1. E-Commerce Core
+- **Product Catalog**: Browse products/books with dynamic categories (Genres).
+- **Cart & Checkout**: Real-time cart subtotal calculation and dynamic shipping costs based on region.
+- **Coupons & Discounts**: Validation of discount codes with expiry dates and maximum usage limits.
+- **Wishlist**: Toggle products to save for later.
+- **Order Management**: Comprehensive tracking of user orders and transaction states.
 
-**Sigmaven** adalah platform literasi berbasis web yang menggabungkan tiga fitur utama dalam satu ekosistem:
+### 2. Interactive Features (Sigame & Auctions)
+- **Sigame (Point System)**: Mini-games where users can earn points. Includes a `PointsTransaction` audit trail.
+- **Auctions (Lelang)**: Real-time bidding system with pessimistic locking for concurrency handling to determine the highest bidder when the auction ends.
 
-- **📚 Toko Buku (Shop)** — Jelajahi dan beli ribuan koleksi buku fiksi & non-fiksi dari berbagai genre.
-- **🎮 Sigame** — Game edukatif eksklusif untuk member premium. Kumpulkan poin dan tukarkan dengan reward menarik.
-- **🏛️ LegacyBid** — Sistem lelang buku langka dan koleksi vintage eksklusif untuk member premium.
+### 3. Roles & Security
+- **Authentication**: Secure login/register system.
+- **Role Management**: Middleware-protected routes differentiating between regular Users, Premium users, and Administrators.
+- **Premium Subscription**: Exclusive access to certain routes (like `/sigame`) protected by `PremiumMiddleware`.
 
-### Fitur Unggulan
+### 4. Admin Panel
+- **Dashboard**: High-level statistical overview (Revenue, Total Products, Orders, Users).
+- **Resource Management**: CRUD operations for Users, Products, Orders, Games, Genres, Auctions, and Coupons.
+- **Dynamic UI**: Built with Tailwind CSS, featuring custom responsive grids, interactive dropdowns, and accessible modal forms for data entry.
 
-| Fitur | Deskripsi |
-|-------|-----------|
-| 🛒 Keranjang & Checkout | Sistem pembelian lengkap dengan manajemen keranjang |
-| 💳 Sistem Pembayaran | Integrasi pembayaran dengan konfirmasi order |
-| ⭐ Sistem Poin | Kumpulkan poin dari transaksi, tukarkan dengan reward |
-| 🏅 Membership Premium | Akses eksklusif ke Sigame dan LegacyBid |
-| ❤️ Wishlist | Simpan buku favorit untuk dibeli nanti |
-| 🎟️ Kupon Diskon | Sistem kupon promo dengan berbagai ketentuan |
-| ⚡ Lelang Real-time | Sistem bidding dengan timer dan riwayat penawaran |
-| 🛡️ Admin Panel | Dashboard lengkap untuk manajemen seluruh platform |
-| 💬 Review & Rating | Sistem ulasan produk dari pembeli terverifikasi |
+## 🛠️ Technology Stack
 
----
+- **Backend**: [Laravel 11+](https://laravel.com)
+- **Frontend / Reativity**: [Livewire](https://livewire.laravel.com/) (AJAX-based partial DOM updates without page reloads)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com) (with custom configurations in `tailwind.config.js`)
+- **Database**: MySQL (using Eloquent ORM, Migrations, Seeders, and DB Transactions)
+- **Bundler**: Vite
 
-## 🛠️ Tech Stack
+## ⚙️ Installation & Setup
 
-### Backend
-- **PHP 8.3** + **Laravel 13.x** — Framework utama
-- **Livewire 4.x** — Full-stack reactive components (tanpa banyak JavaScript manual)
-- **SQLite** — Database (dapat diubah ke MySQL/PostgreSQL)
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repository-url>
+   cd sigmaven
+   ```
 
-### Frontend
-- **Alpine.js 3.x** — JavaScript ringan untuk interaktivitas UI
-- **Tailwind CSS 3.x** — Utility-first CSS framework
-- **Vite 5.x** — Asset bundler cepat
+2. **Install PHP dependencies:**
+   ```bash
+   composer install
+   ```
 
-### Package Tambahan
-- `@tailwindcss/forms` — Styling form elements
-- `@tailwindcss/typography` — Styling konten rich-text
-- `@alpinejs/collapse` — Animasi collapse untuk menu & accordion
-- `@alpinejs/mask` — Input masking
-- `blade-ui-kit/blade-heroicons` — Heroicons di Blade
+3. **Install NPM dependencies and run Vite:**
+   ```bash
+   npm install
+   npm run dev
+   ```
 
----
+4. **Environment Configuration:**
+   Copy the `.env.example` file to `.env` and configure your database settings:
+   ```bash
+   cp .env.example .env
+   php artisan key:generate
+   ```
 
-## 🚀 Instalasi & Setup
+5. **Database Migration & Seeding:**
+   ```bash
+   php artisan migrate --seed
+   ```
+   *Note: Use `php artisan migrate:fresh --seed` if you need to reset the entire database during development.*
 
-### Prasyarat
-- PHP >= 8.3
-- Composer
-- Node.js >= 18.x & NPM
-- Git
+6. **Storage Link:**
+   To ensure uploaded images (like product covers and game thumbnails) are accessible:
+   ```bash
+   php artisan storage:link
+   ```
 
-### Langkah Instalasi
+7. **Run the local server:**
+   ```bash
+   php artisan serve
+   ```
 
-**1. Clone repository**
-```bash
-git clone https://github.com/[username]/sigmaven.git
-cd sigmaven
-```
+## 📚 Technical Implementation Highlights
 
-**2. Install dependensi PHP**
-```bash
-composer install
-```
+- **Modified MVC**: Uses Livewire components in place of traditional controllers for real-time frontend reactivity (Hydration & Dehydration).
+- **Eager Loading**: Implements `->with()` to prevent N+1 Query Problems when loading relational data (e.g., Orders and User).
+- **Service Pattern**: Offloads heavy logic (like calculations and checkout processes) to Service Classes to maintain "Skinny Controllers".
+- **Event-Driven Notifications**: Employs asynchronous event dispatching (`$this->dispatch('notify')`) to trigger toast messages on the frontend without reloading the page.
 
-**3. Setup environment**
-```bash
-cp .env.example .env
-php artisan key:generate
-```
+## 📸 Screenshots
 
-**4. Konfigurasi database**
 
-Edit file `.env`:
-```env
-DB_CONNECTION=sqlite
-# Atau untuk MySQL:
-# DB_CONNECTION=mysql
-# DB_HOST=127.0.0.1
-# DB_PORT=3306
-# DB_DATABASE=sigmaven
-# DB_USERNAME=root
-# DB_PASSWORD=
-```
+### 1. Halaman Utama & Katalog Produk
+![Homepage](public/images/screenshot-home.png)
 
-**5. Jalankan migrasi & seeder**
-```bash
-php artisan migrate
-php artisan db:seed
-```
+### 2. Keranjang & Checkout
+![Checkout](public/images/screenshot-checkout.png)
 
-**6. Install dependensi NPM & build aset**
-```bash
-npm install
-npm run build
-```
+### 3. Sigame & Lelang
+![Sigame Point System](public/images/screenshot-sigame.png)
 
-**7. Jalankan server**
-```bash
-php artisan serve
-```
+### 4. Panel Admin - Dashboard
+![Admin Dashboard](public/images/screenshot-admin.png)
 
-Akses di `http://localhost:8000`
+## 🔑 Akun Demo (Seeder)
+Jika menggunakan `php artisan db:seed`, gunakan kredensial berikut untuk login dan menguji sistem:
+- **Admin**: `admin@sigmaven.com` | Password: `password`
+- **User Premium**: `premium@test.com` | Password: `password`
+- **User Biasa**: `regular@test.com` | Password: `password`
 
 ---
-
-### Cara Cepat (Satu Perintah)
-
-```bash
-composer run setup
-```
-
-Perintah ini akan otomatis menjalankan: `composer install` → copy `.env` → `key:generate` → `migrate` → `npm install` → `npm run build`.
-
----
-
-### Development Mode
-
-Untuk menjalankan semua service sekaligus (server, queue, log, Vite HMR):
-
-```bash
-composer run dev
-```
-
----
-
-## 📂 Struktur Direktori
-
-```
-sigmaven/
-├── app/
-│   ├── Livewire/
-│   │   ├── Admin/          # Komponen admin panel (Dashboard, Products, Orders, dll.)
-│   │   ├── Auth/           # Komponen autentikasi
-│   │   ├── Components/     # Komponen reusable (CartBadge, ProductCard, dll.)
-│   │   └── Pages/          # Halaman utama (Homepage, Shop, Checkout, dll.)
-│   ├── Models/             # Eloquent models (User, Product, Order, Auction, dll.)
-│   └── Services/           # Business logic & service classes
-├── database/
-│   ├── migrations/         # Skema database
-│   └── seeders/            # Data awal
-├── resources/
-│   ├── css/
-│   │   ├── app.css         # CSS utama (design system aktif)
-│   │   ├── app.v1.css      # Backup design system v1
-│   │   └── app.v2.css      # Backup design system v2
-│   ├── js/                 # JavaScript & Alpine.js config
-│   └── views/
-│       ├── layouts/        # Layout utama (app, admin, guest)
-│       ├── livewire/       # Blade views untuk Livewire components
-│       └── components/     # Blade components
-└── routes/
-    └── web.php             # Definisi routes
-```
-
----
-
-## 👥 Peran Pengguna
-
-| Peran | Akses |
-|-------|-------|
-| **Guest** | Browse produk, lihat detail buku |
-| **Regular Member** | Semua fitur guest + beli buku, wishlist, review, poin |
-| **Premium Member** | Semua fitur regular + Sigame & LegacyBid |
-| **Admin** | Akses penuh ke admin panel |
-
----
-
-## ⚙️ Admin Panel
-
-Akses admin panel di `/admin/dashboard` (memerlukan akun dengan role admin).
-
-Fitur admin panel:
-- 📊 **Dashboard** — Statistik ringkas (total order, revenue, user, produk)
-- 📚 **Products** — CRUD produk buku
-- 🏷️ **Genres** — Manajemen genre/kategori
-- 📦 **Orders** — Manajemen & konfirmasi pesanan
-- 👤 **Users** — Manajemen pengguna & role
-- 🎮 **Sigame** — Manajemen konten game
-- 🏛️ **Auctions** — Manajemen item lelang
-- 🎟️ **Coupons** — Buat & kelola kupon diskon
-
----
-
-## 🎨 Design System
-
-Project ini memiliki dua versi design system yang tersimpan:
-
-| Versi | Tema | Status | Lokasi Backup |
-|-------|------|--------|---------------|
-| **v1** | Forest Green + Gold + Cream | Aktif | `resources/views/layouts/v1/` |
-| **v2** | Navy Blue + Steel Blue + Teal | Tersimpan | `resources/views/layouts/v2/` |
-
----
-
-## 📝 Lisensi
-
-Project ini dibuat untuk keperluan tugas **Pemrograman Web** oleh Kelompok 10.
-
----
-
-<p align="center">Made with ❤️ for book lovers — Sigmaven &copy; 2025</p>
+*Developed for Web Programming 2 - Kelompok 10*

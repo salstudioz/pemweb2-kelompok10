@@ -1,0 +1,1873 @@
+===================================================================
+FILE: app\Livewire\Admin\Dashboard.php
+===================================================================
+<?php
+namespace App\Livewire\Admin;
+
+use Livewire\Component;
+use Livewire\Attributes\Layout;
+use App\Models\Order;
+use App\Models\Product;
+use App\Models\User;
+use App\Models\Auction;
+
+#[Layout('layouts.admin')]
+class Dashboard extends Component {
+    public function render() {
+        return view('livewire.admin.dashboard', [
+            'totalOrders' => Order::count(),
+            'revenue' => Order::whereIn('status', ['processing', 'delivered', 'completed'])->sum('final_amount'),
+            'totalProducts' => Product::count(),
+            'totalUsers' => User::where('role', '!=', 'admin')->count(),
+            'totalAuctions' => Auction::where('status', 'active')->count(),
+            'recentOrders' => Order::with('user')->latest()->take(5)->get()
+        ]);
+    }
+}
+
+
+
+===================================================================
+FILE: app\Livewire\Admin\Users.php
+===================================================================
+<?php
+namespace App\Livewire\Admin;
+
+use Livewire\Component;
+use Livewire\WithPagination;
+use Livewire\Attributes\Layout;
+use App\Models\User;
+use App\Traits\WithToast;
+
+#[Layout('layouts.admin')]
+class Users extends Component {
+    use WithPagination, WithToast;
+
+    public $search = '';
+    public $roleFilter = '';
+
+    public function updatingSearch() {
+        $this->resetPage();
+    }
+
+    public function updatingRoleFilter() {
+        $this->resetPage();
+    }
+
+    public function updateRole($userId, $role) {
+        User::findOrFail($userId)->update(['role' => $role]);
+        $this->notify('User role updated successfully.', 'success');
+    }
+
+    public function delete($id) {
+        User::findOrFail($id)->delete();
+        $this->notify('User deleted.', 'success');
+    }
+
+    public function render() {
+        $users = User::query()
+            ->when($this->search, function($query) {
+                $query->where('name', 'like', '%'.$this->search.'%')
+                      ->orWhere('email', 'like', '%'.$this->search.'%');
+            })
+            ->when($this->roleFilter, function($query) {
+                $query->where('role', $this->roleFilter);
+            })
+            ->latest()
+            ->paginate(10);
+
+        return view('livewire.admin.users', ['users' => $users]);
+    }
+}
+
+
+
+===================================================================
+FILE: app\Livewire\Admin\Products.php
+===================================================================
+<?php
+namespace App\Livewire\Admin;
+
+use Livewire\Component;
+use Livewire\WithPagination;
+use Livewire\WithFileUploads;
+use Livewire\Attributes\Layout;
+use App\Models\Product;
+use App\Models\Genre;
+use App\Services\FileUploadService;
+use App\Traits\WithToast;
+use Illuminate\Support\Str;
+
+#[Layout('layouts.admin')]
+class Products extends Component {
+    use WithPagination, WithFileUploads, WithToast;
+
+    public $search = '';
+    public $showModal = false;
+    
+    // Form fields
+    public $productId;
+    public $title, $author, $publisher, $isbn, $description, $price, $discount_price, $stock;
+    public $genre_ids = [], $type = 'physical', $is_active = true, $is_featured = false;
+    public $cover_image, $new_cover_image;
+
+    public function render() {
+        return view('livewire.admin.products', [
+            'products' => Product::with('genres')
+                            ->where('title', 'like', '%' . $this->search . '%')
+                            ->latest()->paginate(10),
+            'genres' => Genre::orderBy('name')->get()
+        ]);
+    }
+
+    public function create() {
+        $this->resetForm();
+        $this->showModal = true;
+    }
+
+    public function edit($id) {
+        $product = Product::findOrFail($id);
+        $this->productId = $product->id;
+        $this->title = $product->title;
+        $this->author = $product->author;
+        $this->publisher = $product->publisher;
+        $this->isbn = $product->isbn;
+        $this->description = $product->description;
+        $this->price = $product->price;
+        $this->discount_price = $product->discount_price;
+        $this->stock = $product->stock;
+        $this->genre_ids = $product->genres->pluck('id')->toArray();
+        $this->type = $product->type;
+        $this->is_active = $product->is_active;
+        $this->is_featured = $product->is_featured;
+        $this->cover_image = $product->cover_image;
+        
+        $this->showModal = true;
+    }
+
+    public function save(FileUploadService $fileService) {
+        $this->validate([
+            'title' => 'required',
+            'genre_ids' => 'required|array|min:1',
+            'price' => 'required|numeric',
+            'author' => 'required',
+            'description' => 'required'
+        ]);
+
+        $data = [
+            'title' => $this->title,
+            'slug' => Str::slug($this->title),
+            'author' => $this->author,
+            'publisher' => $this->publisher ?? 'Sigmaven Pub',
+            'isbn' => $this->isbn,
+            'description' => $this->description,
+            'price' => $this->price,
+            'discount_price' => $this->discount_price ?: null,
+            'stock' => $this->stock ?? 0,
+            'type' => $this->type,
+            'is_active' => $this->is_active,
+            'is_featured' => $this->is_featured,
+        ];
+
+        if ($this->new_cover_image) {
+            if ($this->cover_image) {
+                $fileService->deleteImage($this->cover_image);
+            }
+            $data['cover_image'] = $fileService->uploadImage($this->new_cover_image);
+        }
+
+        if ($this->productId) {
+            $product = Product::find($this->productId);
+            $product->update($data);
+            $product->genres()->sync($this->genre_ids);
+            $this->notify('Product updated!', 'success');
+        } else {
+            $product = Product::create($data);
+            $product->genres()->sync($this->genre_ids);
+            $this->notify('Product created!', 'success');
+        }
+
+        $this->showModal = false;
+        $this->resetForm();
+    }
+
+    public function delete($id) {
+        Product::find($id)->delete();
+        $this->notify('Produk dihapus!', 'success');
+    }
+
+    private function resetForm() {
+        $this->reset(['productId', 'title', 'author', 'publisher', 'isbn', 'description', 'price', 'discount_price', 'stock', 'genre_ids', 'type', 'is_active', 'is_featured', 'cover_image', 'new_cover_image']);
+    }
+}
+
+
+
+===================================================================
+FILE: app\Livewire\Admin\Orders.php
+===================================================================
+<?php
+namespace App\Livewire\Admin;
+
+use Livewire\Component;
+use Livewire\WithPagination;
+use Livewire\Attributes\Layout;
+use App\Models\Order;
+use App\Traits\WithToast;
+
+#[Layout('layouts.admin')]
+class Orders extends Component {
+    use WithPagination, WithToast;
+
+    public $search = '';
+    public $statusFilter = '';
+
+    public function updatingSearch() {
+        $this->resetPage();
+    }
+
+    public function updatingStatusFilter() {
+        $this->resetPage();
+    }
+
+    public function updateStatus($orderId, $status) {
+        Order::find($orderId)->update(['status' => $status]);
+        $this->notify('Status pesanan diperbarui', 'success');
+    }
+
+    public function render() {
+        $orders = Order::with('user')
+                      ->when($this->search, function($q) {
+                          $q->where('order_number', 'like', '%' . $this->search . '%');
+                      })
+                      ->when($this->statusFilter, function($q) {
+                          $q->where('status', $this->statusFilter);
+                      })
+                      ->latest()
+                      ->paginate(15);
+                      
+        return view('livewire.admin.orders', ['orders' => $orders]);
+    }
+}
+
+
+
+===================================================================
+FILE: app\Livewire\Admin\Games.php
+===================================================================
+<?php
+
+namespace App\Livewire\Admin;
+
+use Livewire\Component;
+use Livewire\WithPagination;
+use Livewire\WithFileUploads;
+use Livewire\Attributes\Layout;
+use App\Models\Game;
+use Illuminate\Support\Str;
+use App\Traits\WithToast;
+
+#[Layout('layouts.admin')]
+class Games extends Component
+{
+    use WithPagination, WithFileUploads, WithToast;
+
+    public $search = '';
+    public $showModal = false;
+    public $gameId;
+    public $name;
+    public $description;
+    public $required_points; 
+    public $is_active = true;
+    public $thumbnail;
+    public $oldThumbnail;
+
+    public function updatingSearch()
+    {
+        $this->resetPage();
+    }
+
+    public function create()
+    {
+        $this->resetInputFields();
+        $this->showModal = true;
+    }
+
+    public function edit($id)
+    {
+        $game = Game::findOrFail($id);
+        $this->gameId = $id;
+        $this->name = $game->name;
+        $this->description = $game->description;
+        $this->required_points = $game->points_required;
+        $this->is_active = $game->is_active;
+        $this->oldThumbnail = $game->thumbnail;
+        $this->showModal = true;
+    }
+
+    public function store()
+    {
+        $this->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'required|string',
+            'required_points' => 'required|numeric|min:0',
+            'is_active' => 'boolean',
+            'thumbnail' => 'nullable|image|max:2048',
+        ]);
+
+        $data = [
+            'name' => $this->name,
+            'description' => $this->description,
+            'required_points' => $this->required_points,
+            'is_active' => $this->is_active,
+            'slug' => Str::slug($this->name),
+        ];
+
+        if ($this->thumbnail) {
+            if ($this->oldThumbnail && \Storage::disk('public')->exists($this->oldThumbnail)) {
+                \Storage::disk('public')->delete($this->oldThumbnail);
+            }
+            $path = $this->thumbnail->store('games', 'public');
+            $data['thumbnail'] = $path;
+        } elseif ($this->oldThumbnail) {
+            $data['thumbnail'] = $this->oldThumbnail;
+        }
+
+        Game::updateOrCreate(['id' => $this->gameId], $data);
+
+        $this->toast($this->gameId ? 'Game diperbarui.' : 'Game ditambahkan.', 'success');
+        $this->closeModal();
+    }
+
+    public function delete($id)
+    {
+        $game = Game::findOrFail($id);
+        if ($game->thumbnail && \Storage::disk('public')->exists($game->thumbnail)) {
+            \Storage::disk('public')->delete($game->thumbnail);
+        }
+        $game->delete();
+        $this->toast('Game dihapus.', 'success');
+    }
+
+    public function closeModal()
+    {
+        $this->showModal = false;
+        $this->resetInputFields();
+    }
+
+    private function resetInputFields()
+    {
+        $this->gameId = null;
+        $this->name = '';
+        $this->description = '';
+        $this->required_points = 0;
+        $this->is_active = true;
+        $this->thumbnail = null;
+        $this->oldThumbnail = null;
+    }
+
+    public function render()
+    {
+        $games = Game::where('name', 'like', '%' . $this->search . '%')
+                     ->orWhere('description', 'like', '%' . $this->search . '%')
+                     ->latest()
+                     ->paginate(10);
+        return view('livewire.admin.games', ['games' => $games]);
+    }
+}
+
+
+
+===================================================================
+FILE: app\Livewire\Admin\Genres.php
+===================================================================
+<?php
+
+namespace App\Livewire\Admin;
+
+use Livewire\Component;
+use Livewire\WithPagination;
+use Livewire\WithFileUploads;
+use Livewire\Attributes\Layout;
+use App\Models\Genre;
+use Illuminate\Support\Str;
+use App\Traits\WithToast;
+
+#[Layout('layouts.admin')]
+class Genres extends Component
+{
+    use WithPagination, WithFileUploads, WithToast;
+
+    public $search = '';
+    public $showModal = false;
+    public $genreId, $name, $image;
+    public $oldImage;
+
+    public function updatingSearch()
+    {
+        $this->resetPage();
+    }
+
+    public function create()
+    {
+        $this->resetInputFields();
+        $this->showModal = true;
+    }
+
+    public function edit($id)
+    {
+        $genre = Genre::findOrFail($id);
+        $this->genreId = $id;
+        $this->name = $genre->name;
+        $this->oldImage = $genre->image_url;
+        $this->showModal = true;
+    }
+
+    public function save()
+    {
+        $this->validate([
+            'name' => 'required|string|max:255',
+            'image' => 'nullable|image|max:2048',
+        ]);
+
+        $data = [
+            'name' => $this->name,
+            'slug' => Str::slug($this->name),
+        ];
+
+        if ($this->image) {
+            $data['image_url'] = '/storage/' . $this->image->store('genres', 'public');
+        } elseif (!$this->oldImage && !$this->genreId) {
+            $data['image_url'] = 'https://ui-avatars.com/api/?name=' . urlencode($this->name) . '&background=random&size=400&font-size=0.33';
+        }
+
+        Genre::updateOrCreate(['id' => $this->genreId], $data);
+
+        $this->notify($this->genreId ? 'Genre updated.' : 'Genre added.', 'success');
+        $this->closeModal();
+    }
+
+    public function delete($id)
+    {
+        Genre::findOrFail($id)->delete();
+        $this->notify('Genre deleted.', 'success');
+    }
+
+    public function closeModal()
+    {
+        $this->showModal = false;
+        $this->resetInputFields();
+    }
+
+    private function resetInputFields()
+    {
+        $this->genreId = null;
+        $this->name = '';
+        $this->image = null;
+        $this->oldImage = null;
+    }
+
+    public function render()
+    {
+        $genres = Genre::when($this->search, function ($query) {
+            $query->where('name', 'like', '%' . $this->search . '%');
+        })->latest()->paginate(10);
+
+        return view('livewire.admin.genres', compact('genres'));
+    }
+}
+
+
+
+===================================================================
+FILE: app\Livewire\Admin\Auctions.php
+===================================================================
+<?php
+namespace App\Livewire\Admin;
+
+use Livewire\Component;
+use Livewire\WithPagination;
+use Livewire\Attributes\Layout;
+use App\Models\Auction;
+use App\Traits\WithToast;
+
+#[Layout('layouts.admin')]
+class Auctions extends Component {
+    use WithPagination, WithToast;
+
+    public $search = '';
+    public $statusFilter = '';
+
+    public $showModal = false;
+    public $auctionId;
+    public $product_id, $starting_price, $starts_at, $ends_at, $status = 'active';
+
+    public function updatingSearch() {
+        $this->resetPage();
+    }
+
+    public function updatingStatusFilter() {
+        $this->resetPage();
+    }
+
+    public function create() {
+        $this->resetInputFields();
+        $this->showModal = true;
+    }
+
+    public function edit($id) {
+        $auction = Auction::findOrFail($id);
+        $this->auctionId = $id;
+        $this->product_id = $auction->product_id;
+        $this->starting_price = $auction->starting_price;
+        $this->starts_at = \Carbon\Carbon::parse($auction->starts_at)->format('Y-m-d\TH:i');
+        $this->ends_at = \Carbon\Carbon::parse($auction->ends_at)->format('Y-m-d\TH:i');
+        $this->status = $auction->status;
+        $this->showModal = true;
+    }
+
+    public function store() {
+        $this->validate([
+            'product_id' => 'required|exists:products,id',
+            'starting_price' => 'required|numeric|min:0',
+            'starts_at' => 'required|date',
+            'ends_at' => 'required|date|after:starts_at',
+            'status' => 'required|in:active,ended,cancelled',
+        ]);
+
+        Auction::updateOrCreate(['id' => $this->auctionId], [
+            'product_id' => $this->product_id,
+            'starting_price' => $this->starting_price,
+            'current_price' => $this->auctionId ? Auction::find($this->auctionId)->current_price : $this->starting_price,
+            'starts_at' => $this->starts_at,
+            'ends_at' => $this->ends_at,
+            'status' => $this->status,
+        ]);
+
+        $this->notify($this->auctionId ? 'Auction updated.' : 'Auction added.', 'success');
+        $this->closeModal();
+    }
+
+    public function delete($id) {
+        Auction::findOrFail($id)->delete();
+        $this->notify('Auction deleted.', 'success');
+    }
+
+    public function closeModal() {
+        $this->showModal = false;
+        $this->resetInputFields();
+    }
+
+    private function resetInputFields() {
+        $this->auctionId = null;
+        $this->product_id = '';
+        $this->starting_price = '';
+        $this->starts_at = '';
+        $this->ends_at = '';
+        $this->status = 'active';
+    }
+
+    public function render() {
+        $auctions = Auction::with('product')
+            ->when($this->search, function($query) {
+                $query->whereHas('product', function($q) {
+                    $q->where('title', 'like', '%'.$this->search.'%');
+                });
+            })
+            ->when($this->statusFilter, function($query) {
+                $query->where('status', $this->statusFilter);
+            })
+            ->latest()
+            ->paginate(10);
+
+        return view('livewire.admin.auctions', [
+            'auctions' => $auctions,
+            'products' => \App\Models\Product::orderBy('title')->get()
+        ]);
+    }
+}
+
+
+
+===================================================================
+FILE: app\Livewire\Admin\Coupons.php
+===================================================================
+<?php
+namespace App\Livewire\Admin;
+
+use Livewire\Component;
+use Livewire\WithPagination;
+use Livewire\Attributes\Layout;
+use App\Models\Coupon;
+use App\Traits\WithToast;
+
+#[Layout('layouts.admin')]
+class Coupons extends Component {
+    use WithPagination, WithToast;
+
+    public $search = '';
+    public $showModal = false;
+    
+    // Form fields
+    public $couponId;
+    public $code, $name, $description, $type = 'fixed', $value = 0;
+    public $min_order, $max_uses, $starts_at, $ends_at, $is_active = true;
+
+    public function updatingSearch() {
+        $this->resetPage();
+    }
+
+    public function create() {
+        $this->resetForm();
+        $this->showModal = true;
+    }
+
+    public function edit($id) {
+        $coupon = Coupon::findOrFail($id);
+        $this->couponId = $coupon->id;
+        $this->code = $coupon->code;
+        $this->name = $coupon->name;
+        $this->description = $coupon->description;
+        $this->type = $coupon->type;
+        $this->value = $coupon->value;
+        $this->min_order = $coupon->min_order;
+        $this->max_uses = $coupon->max_uses;
+        $this->starts_at = $coupon->starts_at ? $coupon->starts_at->format('Y-m-d\TH:i') : '';
+        $this->ends_at = $coupon->ends_at ? $coupon->ends_at->format('Y-m-d\TH:i') : '';
+        $this->is_active = $coupon->is_active;
+        
+        $this->showModal = true;
+    }
+
+    public function save() {
+        $this->validate([
+            'code' => 'required|string|max:50|unique:coupons,code,' . $this->couponId,
+            'name' => 'required|string|max:255',
+            'type' => 'required|in:percentage,fixed',
+            'value' => 'required|numeric|min:0',
+            'min_order' => 'nullable|numeric|min:0',
+            'max_uses' => 'nullable|integer|min:1',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after_or_equal:starts_at',
+            'is_active' => 'boolean',
+        ]);
+
+        $data = [
+            'code' => strtoupper($this->code),
+            'name' => $this->name,
+            'description' => $this->description,
+            'type' => $this->type,
+            'value' => $this->value,
+            'min_order' => $this->min_order ?: null,
+            'max_uses' => $this->max_uses ?: null,
+            'starts_at' => $this->starts_at ?: null,
+            'ends_at' => $this->ends_at ?: null,
+            'is_active' => $this->is_active,
+        ];
+
+        if ($this->couponId) {
+            $coupon = Coupon::find($this->couponId);
+            $coupon->update($data);
+            $this->toast('Coupon updated successfully!', 'success');
+        } else {
+            Coupon::create($data);
+            $this->toast('Coupon created successfully!', 'success');
+        }
+
+        $this->showModal = false;
+        $this->resetForm();
+    }
+
+    public function delete($id) {
+        Coupon::find($id)->delete();
+        $this->toast('Coupon deleted!', 'success');
+    }
+
+    private function resetForm() {
+        $this->reset(['couponId', 'code', 'name', 'description', 'type', 'value', 
+                     'min_order', 'max_uses', 'starts_at', 'ends_at', 'is_active']);
+    }
+
+    public function render() {
+        $coupons = Coupon::query()
+            ->when($this->search, function($query) {
+                $query->where('code', 'like', '%' . $this->search . '%')
+                      ->orWhere('name', 'like', '%' . $this->search . '%');
+            })
+            ->latest()
+            ->paginate(10);
+
+        return view('livewire.admin.coupons', [
+            'coupons' => $coupons
+        ]);
+    }
+}
+
+
+
+===================================================================
+FILE: resources\views\livewire\admin\dashboard.blade.php
+===================================================================
+<div>
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Dashboard Overview</h2>
+    
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100 border-l-4 border-l-blue-500">
+            <p class="text-sm text-gray-500 mb-1">Total Pendapatan</p>
+            <h3 class="text-2xl font-bold text-gray-800">Rp {{ number_format($revenue, 0, ',', '.') }}</h3>
+        </div>
+        <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100 border-l-4 border-l-yellow-500">
+            <p class="text-sm text-gray-500 mb-1">Total User</p>
+            <h3 class="text-2xl font-bold text-gray-800">{{ number_format($totalUsers) }}</h3>
+        </div>
+        <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100 border-l-4 border-l-purple-500">
+            <p class="text-sm text-gray-500 mb-1">Total Buku</p>
+            <h3 class="text-2xl font-bold text-gray-800">{{ number_format($totalProducts) }}</h3>
+        </div>
+        <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100 border-l-4 border-l-red-500">
+            <p class="text-sm text-gray-500 mb-1">Lelang Aktif</p>
+            <h3 class="text-2xl font-bold text-gray-800">{{ number_format($totalAuctions) }}</h3>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-100">
+        <div class="px-6 py-4 border-b border-gray-100">
+            <h3 class="font-bold text-gray-800">Pesanan Terbaru</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-gray-600">
+                <thead class="bg-gray-50 text-gray-500 uppercase">
+                    <tr>
+                        <th class="px-6 py-3 font-medium">Order ID</th>
+                        <th class="px-6 py-3 font-medium">Pelanggan</th>
+                        <th class="px-6 py-3 font-medium">Total</th>
+                        <th class="px-6 py-3 font-medium">Status</th>
+                        <th class="px-6 py-3 font-medium">Tanggal</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    @foreach($recentOrders as $order)
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 font-medium text-sigmaven-admin-blue">{{ $order->order_number }}</td>
+                        <td class="px-6 py-4">{{ $order->user->name }}</td>
+                        <td class="px-6 py-4 font-medium">Rp {{ number_format($order->grand_total ?? 0, 0, ',', '.') }}</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
+                                {{ ucfirst($order->status) }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">{{ $order->created_at->format('d M Y') }}</td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+
+
+===================================================================
+FILE: resources\views\livewire\admin\users.blade.php
+===================================================================
+<div class="bg-white rounded-lg shadow-sm border border-gray-100 p-6">
+    <div class="flex justify-between items-center mb-6 border-b pb-4">
+        <h2 class="text-xl font-bold text-gray-800">User Management</h2>
+    </div>
+
+    <div class="flex flex-col md:flex-row gap-4 mb-6">
+        <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search by name or email..." class="border-gray-300 rounded-lg focus:ring-sigmaven-admin-blue focus:border-sigmaven-admin-blue flex-1 text-sm">
+        <select wire:model.live="roleFilter" class="border-gray-300 rounded-lg focus:ring-sigmaven-admin-blue focus:border-sigmaven-admin-blue w-full md:w-48 text-sm">
+            <option value="">All Roles</option>
+            <option value="regular">Regular</option>
+            <option value="premium">Premium</option>
+            <option value="admin">Admin</option>
+        </select>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-gray-600">
+            <thead class="bg-gray-50 text-gray-500 uppercase text-xs">
+                <tr>
+                    <th class="px-6 py-3 font-semibold">Name</th>
+                    <th class="px-6 py-3 font-semibold">Email</th>
+                    <th class="px-6 py-3 font-semibold">Role</th>
+                    <th class="px-6 py-3 font-semibold">Points</th>
+                    <th class="px-6 py-3 font-semibold">Joined</th>
+                    <th class="px-6 py-3 font-semibold">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                @forelse($users as $user)
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 bg-sigmaven-admin-blue/10 rounded-full flex items-center justify-center text-xs font-bold text-sigmaven-admin-blue">
+                                    {{ strtoupper(substr($user->name, 0, 1)) }}
+                                </div>
+                                <span class="font-medium text-gray-800">{{ $user->name }}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-gray-500">{{ $user->email }}</td>
+                        <td class="px-6 py-4">
+                            <select wire:change="updateRole({{ $user->id }}, $event.target.value)" class="text-xs rounded-full border-0 py-1 pl-2.5 pr-6 font-semibold cursor-pointer {{ $user->role == 'admin' ? 'bg-purple-100 text-purple-800' : ($user->role == 'premium' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600') }}">
+                                <option value="regular" {{ $user->role == 'regular' ? 'selected' : '' }}>Regular</option>
+                                <option value="premium" {{ $user->role == 'premium' ? 'selected' : '' }}>Premium</option>
+                                <option value="admin" {{ $user->role == 'admin' ? 'selected' : '' }}>Admin</option>
+                            </select>
+                        </td>
+                        <td class="px-6 py-4 font-semibold text-sigmaven-gold">{{ number_format($user->points) }}</td>
+                        <td class="px-6 py-4 text-gray-500">{{ $user->created_at->format('d M Y') }}</td>
+                        <td class="px-6 py-4">
+                            <button wire:click="delete({{ $user->id }})" wire:confirm="Permanently delete this user? This cannot be undone." class="text-red-500 hover:text-red-700 font-medium transition text-sm">Delete</button>
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="6" class="px-6 py-12 text-center text-gray-400">No users found.</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="mt-4">
+        {{ $users->links() }}
+    </div>
+</div>
+
+
+
+===================================================================
+FILE: resources\views\livewire\admin\products.blade.php
+===================================================================
+<div>
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold text-gray-800">Product Management</h2>
+        <button wire:click="create" class="bg-sigmaven-admin-blue hover:bg-blue-800 text-white px-4 py-2 rounded text-sm font-medium transition flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            Add Product
+        </button>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-100 mb-6">
+        <div class="p-4 border-b border-gray-100">
+            <input wire:model.live.debounce.300ms="search" type="text" placeholder="Search products..." class="w-full md:w-1/3 rounded border-gray-300 text-sm focus:border-sigmaven-admin-blue focus:ring focus:ring-sigmaven-admin-blue/20">
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-gray-600">
+                <thead class="bg-gray-50 text-gray-500 uppercase text-xs">
+                    <tr>
+                        <th class="px-6 py-3 font-semibold">Product</th>
+                        <th class="px-6 py-3 font-semibold">Genres</th>
+                        <th class="px-6 py-3 font-semibold">Price</th>
+                        <th class="px-6 py-3 font-semibold">Stock</th>
+                        <th class="px-6 py-3 font-semibold">Status</th>
+                        <th class="px-6 py-3 font-semibold text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    @forelse($products as $product)
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="px-6 py-4">
+                            <div class="flex items-center gap-3">
+                                @if($product->cover_image)
+                                    <img src="{{ Storage::url($product->cover_image) }}" class="w-10 h-14 rounded object-cover shadow-sm flex-shrink-0">
+                                @else
+                                    <div class="w-10 h-14 rounded bg-gray-200 flex-shrink-0 flex items-center justify-center text-gray-400">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253"></path></svg>
+                                    </div>
+                                @endif
+                                <div>
+                                    <span class="font-medium text-gray-800 block line-clamp-1">{{ $product->title }}</span>
+                                    <span class="text-xs text-gray-500">{{ $product->author }}</span>
+                                    @if($product->is_featured)
+                                        <span class="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium mt-0.5 inline-block">Featured</span>
+                                    @endif
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="flex flex-wrap gap-1">
+                                @foreach($product->genres->take(2) as $genre)
+                                    <span class="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">{{ $genre->name }}</span>
+                                @endforeach
+                                @if($product->genres->count() > 2)
+                                    <span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">+{{ $product->genres->count() - 2 }}</span>
+                                @endif
+                            </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div>
+                                <span class="font-medium">Rp {{ number_format($product->price, 0, ',', '.') }}</span>
+                                @if($product->discount_price)
+                                    <span class="text-xs text-green-600 block">Sale: Rp {{ number_format($product->discount_price, 0, ',', '.') }}</span>
+                                @endif
+                            </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            @if($product->type === 'digital')
+                                <span class="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">Digital</span>
+                            @else
+                                <span class="{{ $product->stock < 5 ? 'text-red-600 font-bold' : 'text-gray-600' }}">{{ $product->stock }}</span>
+                            @endif
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $product->is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500' }}">
+                                {{ $product->is_active ? 'Active' : 'Inactive' }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 text-right space-x-3">
+                            <button wire:click="edit({{ $product->id }})" class="text-blue-500 hover:text-blue-700 font-medium text-sm transition">Edit</button>
+                            <button wire:click="delete({{ $product->id }})" wire:confirm="Delete this product permanently?" class="text-red-500 hover:text-red-700 font-medium text-sm transition">Delete</button>
+                        </td>
+                    </tr>
+                    @empty
+                    <tr>
+                        <td colspan="6" class="px-6 py-12 text-center text-gray-400">No products found.</td>
+                    </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+        <div class="p-4 border-t border-gray-100">
+            {{ $products->links() }}
+        </div>
+    </div>
+
+    <!-- Modal Form -->
+    @if($showModal)
+    <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" x-data @keydown.escape.window="$wire.set('showModal', false)">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center p-6 border-b border-gray-100 sticky top-0 bg-white z-10">
+                <h3 class="text-xl font-bold text-gray-800">{{ $productId ? 'Edit Product' : 'Add New Product' }}</h3>
+                <button wire:click="$set('showModal', false)" class="text-gray-400 hover:text-gray-600 transition p-1 rounded-lg hover:bg-gray-100">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <form wire:submit.prevent="save" class="p-6 space-y-5">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Book Title *</label>
+                        <input wire:model="title" type="text" class="w-full rounded-lg border-gray-300 text-sm focus:border-sigmaven-admin-blue focus:ring focus:ring-sigmaven-admin-blue/20">
+                        @error('title') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Author *</label>
+                        <input wire:model="author" type="text" class="w-full rounded-lg border-gray-300 text-sm focus:border-sigmaven-admin-blue focus:ring focus:ring-sigmaven-admin-blue/20">
+                        @error('author') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Publisher</label>
+                        <input wire:model="publisher" type="text" class="w-full rounded-lg border-gray-300 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">ISBN</label>
+                        <input wire:model="isbn" type="text" class="w-full rounded-lg border-gray-300 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Price (Rp) *</label>
+                        <input wire:model="price" type="number" min="0" class="w-full rounded-lg border-gray-300 text-sm">
+                        @error('price') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Discount Price (Rp)</label>
+                        <input wire:model="discount_price" type="number" min="0" placeholder="Leave empty for no discount" class="w-full rounded-lg border-gray-300 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                        <select wire:model.live="type" class="w-full rounded-lg border-gray-300 text-sm">
+                            <option value="physical">Physical Book</option>
+                            <option value="digital">Digital / E-Book</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Physical Stock</label>
+                        <input wire:model="stock" type="number" min="0" {{ $type === 'digital' ? 'disabled' : '' }} class="w-full rounded-lg border-gray-300 text-sm disabled:bg-gray-100 disabled:text-gray-400">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Genres * <span class="text-gray-400 font-normal">(Ctrl/Cmd + click to select multiple)</span></label>
+                        <select wire:model="genre_ids" multiple class="w-full rounded-lg border-gray-300 text-sm h-36">
+                            @foreach($genres as $genre)
+                                <option value="{{ $genre->id }}">{{ $genre->name }}</option>
+                            @endforeach
+                        </select>
+                        @error('genre_ids') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Upload Cover Image</label>
+                        @if($cover_image && !$new_cover_image)
+                            <div class="mb-2 flex items-center gap-3">
+                                <img src="{{ Storage::url($cover_image) }}" class="w-16 h-20 object-cover rounded shadow-sm">
+                                <span class="text-xs text-gray-500">Current cover</span>
+                            </div>
+                        @endif
+                        @if($new_cover_image)
+                            <div class="mb-2 flex items-center gap-3">
+                                <img src="{{ $new_cover_image->temporaryUrl() }}" class="w-16 h-20 object-cover rounded shadow-sm">
+                                <span class="text-xs text-green-600">New cover preview</span>
+                            </div>
+                        @endif
+                        <input wire:model="new_cover_image" type="file" accept="image/*" class="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                        <div wire:loading wire:target="new_cover_image" class="text-xs text-blue-500 mt-1 flex items-center gap-1">
+                            <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                            Uploading...
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description *</label>
+                    <textarea wire:model="description" rows="4" class="w-full rounded-lg border-gray-300 text-sm" placeholder="Enter book description..."></textarea>
+                    @error('description') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
+                </div>
+
+                <div class="flex gap-6">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" wire:model="is_active" class="rounded text-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                        <span class="text-sm font-medium text-gray-700">Active (visible in shop)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" wire:model="is_featured" class="rounded text-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                        <span class="text-sm font-medium text-gray-700">Featured on homepage</span>
+                    </label>
+                </div>
+                
+                <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                    <button type="button" wire:click="$set('showModal', false)" class="px-5 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-sigmaven-admin-blue text-white rounded-lg text-sm hover:bg-blue-800 transition flex items-center gap-2" wire:loading.attr="disabled">
+                        <span wire:loading.remove>{{ $productId ? 'Save Changes' : 'Create Product' }}</span>
+                        <span wire:loading>Saving...</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
+</div>
+
+
+
+===================================================================
+FILE: resources\views\livewire\admin\orders.blade.php
+===================================================================
+<div x-data="{ openModal: false, selectedOrder: null }">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Order Management</h2>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-100 mb-6">
+        <div class="p-4 border-b border-gray-100 flex flex-col md:flex-row gap-4">
+            <input wire:model.live.debounce.300ms="search" type="text" placeholder="Search by order number..." class="w-full md:w-1/3 rounded-lg border-gray-300 text-sm focus:border-sigmaven-admin-blue focus:ring focus:ring-sigmaven-admin-blue/20">
+            <select wire:model.live="statusFilter" class="w-full md:w-1/4 rounded-lg border-gray-300 text-sm focus:border-sigmaven-admin-blue focus:ring focus:ring-sigmaven-admin-blue/20">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="processing">Processing</option>
+                <option value="shipped">Shipped</option>
+                <option value="delivered">Delivered</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+            </select>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-gray-600">
+                <thead class="bg-gray-50 text-gray-500 uppercase text-xs">
+                    <tr>
+                        <th class="px-6 py-3 font-semibold">Order ID</th>
+                        <th class="px-6 py-3 font-semibold">Customer</th>
+                        <th class="px-6 py-3 font-semibold">Total</th>
+                        <th class="px-6 py-3 font-semibold">Payment</th>
+                        <th class="px-6 py-3 font-semibold">Status</th>
+                        <th class="px-6 py-3 font-semibold">View</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    @forelse($orders as $order)
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="px-6 py-4 font-semibold text-sigmaven-admin-blue">{{ $order->order_number }}</td>
+                        <td class="px-6 py-4">
+                            <span class="block font-medium text-gray-800">{{ $order->user->name ?? 'N/A' }}</span>
+                            <span class="text-xs text-gray-400">{{ $order->created_at->format('d M Y H:i') }}</span>
+                        </td>
+                        <td class="px-6 py-4 font-semibold">Rp {{ number_format($order->grand_total ?? 0, 0, ',', '.') }}</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                                {{ strtoupper(str_replace('_', ' ', $order->payment_method ?? '-')) }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <select wire:change="updateStatus({{ $order->id }}, $event.target.value)" class="text-xs rounded-full border-0 py-1 pl-2.5 pr-6 font-semibold cursor-pointer {{ 
+                                $order->status == 'completed' ? 'bg-green-100 text-green-800' : 
+                                ($order->status == 'processing' ? 'bg-blue-100 text-blue-800' :
+                                ($order->status == 'delivered' ? 'bg-purple-100 text-purple-800' :
+                                ($order->status == 'shipped' ? 'bg-indigo-100 text-indigo-800' :
+                                ($order->status == 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'))))
+                            }}">
+                                <option value="pending" {{ $order->status == 'pending' ? 'selected' : '' }}>Pending</option>
+                                <option value="processing" {{ $order->status == 'processing' ? 'selected' : '' }}>Processing</option>
+                                <option value="shipped" {{ $order->status == 'shipped' ? 'selected' : '' }}>Shipped</option>
+                                <option value="delivered" {{ $order->status == 'delivered' ? 'selected' : '' }}>Delivered</option>
+                                <option value="completed" {{ $order->status == 'completed' ? 'selected' : '' }}>Completed</option>
+                                <option value="cancelled" {{ $order->status == 'cancelled' ? 'selected' : '' }}>Cancelled</option>
+                            </select>
+                        </td>
+                        <td class="px-6 py-4">
+                            <button @click="openModal = true; selectedOrder = {{ json_encode($order->load('user')->toArray()) }}" class="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition" title="View Details">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                            </button>
+                        </td>
+                    </tr>
+                    @empty
+                    <tr>
+                        <td colspan="6" class="px-6 py-12 text-center text-gray-400">No orders found.</td>
+                    </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+        <div class="p-4 border-t border-gray-100">
+            {{ $orders->links() }}
+        </div>
+    </div>
+
+    <!-- Order Detail Modal -->
+    <div x-show="openModal" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="display: none;" @keydown.escape.window="openModal = false">
+        <div @click="openModal = false" class="absolute inset-0 bg-black/60"></div>
+        <div x-show="openModal" x-transition class="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl z-10">
+            <div class="flex justify-between items-center p-6 border-b">
+                <h3 class="text-lg font-bold text-gray-900">
+                    Order Details — <span class="text-sigmaven-admin-blue" x-text="selectedOrder?.order_number"></span>
+                </h3>
+                <button @click="openModal = false" class="p-1 rounded-lg hover:bg-gray-100 transition text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4 text-sm">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-gray-400 mb-1">Transaction Date</p>
+                        <p class="font-medium" x-text="selectedOrder?.created_at ? new Date(selectedOrder.created_at).toLocaleString() : '-'"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 mb-1">Customer</p>
+                        <p class="font-medium" x-text="selectedOrder?.user?.name ?? 'N/A'"></p>
+                    </div>
+                    <div class="col-span-2">
+                        <p class="text-gray-400 mb-1">Shipping Address</p>
+                        <p class="font-medium bg-gray-50 p-3 rounded" x-text="selectedOrder?.address ?? '-'"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 mb-1">Payment Method</p>
+                        <p class="font-medium" x-text="(selectedOrder?.payment_method ?? '-').replace(/_/g, ' ').toUpperCase()"></p>
+                    </div>
+                    <div>
+                        <p class="text-gray-400 mb-1">Total Payment</p>
+                        <p class="font-bold text-sigmaven-forest text-base" x-text="'Rp ' + (selectedOrder?.grand_total ?? 0).toLocaleString('id-ID')"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+===================================================================
+FILE: resources\views\livewire\admin\games.blade.php
+===================================================================
+<div class="bg-white rounded-lg shadow-sm border border-gray-100 p-6">
+    <div class="flex justify-between items-center mb-6 border-b pb-4">
+        <h2 class="text-xl font-bold text-gray-800">Manajemen Sigame</h2>
+        <button wire:click="create" class="bg-sigmaven-admin-blue text-white px-4 py-2 rounded hover:bg-blue-700">Tambah Game</button>
+    </div>
+
+
+
+    <div class="mb-6">
+        <input type="text" wire:model.live.debounce.300ms="search" placeholder="Cari nama game..." class="border-gray-300 rounded focus:ring-sigmaven-admin-blue focus:border-sigmaven-admin-blue w-full md:w-1/3">
+    </div>
+
+    <div class="overflow-x-auto relative">
+        <div wire:loading.delay wire:target="search" class="absolute inset-0 bg-white/50 z-10 flex items-center justify-center">
+            <!-- Skeleton Loading -->
+            <div class="animate-pulse flex space-x-4">
+                <div class="flex-1 space-y-4 py-1">
+                    <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+                    <div class="space-y-2">
+                        <div class="h-4 bg-gray-200 rounded"></div>
+                        <div class="h-4 bg-gray-200 rounded w-5/6"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <table class="w-full text-left text-sm text-gray-600">
+            <thead class="bg-gray-50 text-gray-500 uppercase">
+                <tr>
+                    <th class="px-6 py-3 font-medium">Gambar</th>
+                    <th class="px-6 py-3 font-medium">Nama Game</th>
+                    <th class="px-6 py-3 font-medium">Poin Dibutuhkan</th>
+                    <th class="px-6 py-3 font-medium">Status</th>
+                    <th class="px-6 py-3 font-medium">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                @forelse($games as $game)
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4">
+                            @if($game->url)
+                                <a href="{{ $game->url }}" target="_blank" class="text-blue-500 hover:underline">Mainkan</a>
+                            @else
+                                <span class="text-gray-400">-</span>
+                            @endif
+                        </td>
+                        <td class="px-6 py-4 font-medium text-gray-800">{{ $game->title }}</td>
+                        <td class="px-6 py-4 font-medium text-sigmaven-gold">{{ number_format($game->required_points) }}</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 rounded-full text-xs font-medium {{ $game->is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' }}">
+                                {{ $game->is_active ? 'Aktif' : 'Nonaktif' }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <button wire:click="edit({{ $game->id }})" class="text-blue-600 hover:underline mr-3">Edit</button>
+                            <button wire:click="delete({{ $game->id }})" wire:confirm="Yakin ingin menghapus game ini?" class="text-red-600 hover:underline">Hapus</button>
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="5" class="px-6 py-8 text-center text-gray-500">Tidak ada game.</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="mt-4">
+        {{ $games->links() }}
+    </div>
+
+    <!-- Modal Form -->
+    @if($showModal)
+    <div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" wire:click="closeModal"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <form wire:submit.prevent="store">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">{{ $gameId ? 'Edit Game' : 'Tambah Game' }}</h3>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">Nama Game</label>
+                            <input type="text" wire:model="name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                            @error('name') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">Deskripsi</label>
+                            <textarea wire:model="description" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue"></textarea>
+                            @error('description') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-text-secondary">Poin Required</label>
+                            <input type="number" wire:model="required_points" class="w-full rounded-sm border-border-color" required>
+                            @error('required_points') <span class="text-error text-sm">{{ $message }}</span> @enderror
+                        </div>
+      
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">URL Game (Opsional)</label>
+                            <input type="text" wire:model="url" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                            @error('url') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="flex items-center mb-4">
+                            <input type="checkbox" wire:model="is_active" id="is_active" class="rounded border-gray-300 text-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                            <label for="is_active" class="ml-2 block text-sm text-gray-900">Aktif</label>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-sigmaven-admin-blue text-base font-medium text-white hover:bg-blue-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm">
+                            Simpan
+                        </button>
+                        <button type="button" wire:click="closeModal" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                            Batal
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    @endif
+</div>
+
+
+
+===================================================================
+FILE: resources\views\livewire\admin\genres.blade.php
+===================================================================
+<div>
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold text-gray-800">Genre Management</h2>
+        <button wire:click="create" class="bg-sigmaven-admin-blue hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            Add Genre
+        </button>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-100 mb-6">
+        <div class="p-4 border-b border-gray-100">
+            <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search genres..." class="w-full md:w-1/3 rounded border-gray-300 text-sm focus:border-sigmaven-admin-blue focus:ring focus:ring-sigmaven-admin-blue/20">
+        </div>
+        
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-gray-600">
+                <thead class="bg-gray-50 text-gray-500 uppercase">
+                    <tr>
+                        <th class="px-6 py-3 font-medium">Image</th>
+                        <th class="px-6 py-3 font-medium">Name</th>
+                        <th class="px-6 py-3 font-medium">Products Count</th>
+                        <th class="px-6 py-3 font-medium text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    @forelse($genres as $genre)
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4">
+                                <img src="{{ filter_var($genre->image_url, FILTER_VALIDATE_URL) ? $genre->image_url : asset($genre->image_url) }}" class="w-12 h-12 object-cover rounded shadow-sm">
+                            </td>
+                            <td class="px-6 py-4 font-medium text-gray-800">{{ $genre->name }}</td>
+                            <td class="px-6 py-4">{{ $genre->products()->count() }}</td>
+                            <td class="px-6 py-4 text-right space-x-2">
+                                <button wire:click="edit({{ $genre->id }})" class="text-blue-500 hover:text-blue-700 font-medium">Edit</button>
+                                <button wire:click="delete({{ $genre->id }})" wire:confirm="Are you sure you want to delete this genre?" class="text-red-500 hover:text-red-700 font-medium">Delete</button>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="4" class="px-6 py-4 text-center text-gray-500">No genres found.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+        <div class="p-4 border-t border-gray-100">
+            {{ $genres->links() }}
+        </div>
+    </div>
+
+    <!-- Modal Form -->
+    @if($showModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+            <div class="bg-white rounded-lg w-full max-w-md shadow-xl">
+                <div class="flex justify-between items-center p-4 border-b">
+                    <h3 class="text-lg font-bold text-gray-800">{{ $genreId ? 'Edit Genre' : 'Add Genre' }}</h3>
+                    <button wire:click="closeModal" class="text-gray-400 hover:text-gray-600">
+                        <x-heroicon-o-x-mark class="w-5 h-5"/>
+                    </button>
+                </div>
+                
+                <form wire:submit.prevent="save" class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                        <input type="text" wire:model="name" class="w-full rounded border-gray-300 text-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue" required>
+                        @error('name') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Image (Optional)</label>
+                        <input type="file" wire:model="image" class="w-full text-sm border border-gray-300 rounded p-1">
+                        @error('image') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                        
+                        <div wire:loading wire:target="image" class="text-xs text-blue-500 mt-1">Uploading...</div>
+                        
+                        @if ($image)
+                            <div class="mt-2">
+                                <img src="{{ $image->temporaryUrl() }}" class="w-20 h-20 object-cover rounded shadow-sm">
+                            </div>
+                        @elseif ($oldImage)
+                            <div class="mt-2">
+                                <img src="{{ filter_var($oldImage, FILTER_VALIDATE_URL) ? $oldImage : asset($oldImage) }}" class="w-20 h-20 object-cover rounded shadow-sm">
+                            </div>
+                        @endif
+                    </div>
+
+                    <div class="flex justify-end gap-2 pt-4 border-t">
+                        <button type="button" wire:click="closeModal" class="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
+                        <button type="submit" class="px-4 py-2 bg-sigmaven-admin-blue text-white rounded text-sm hover:bg-blue-800">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+</div>
+
+
+
+===================================================================
+FILE: resources\views\livewire\admin\auctions.blade.php
+===================================================================
+<div class="bg-white rounded-lg shadow-sm border border-gray-100 p-6">
+    <div class="flex justify-between items-center mb-6 border-b pb-4">
+        <h2 class="text-xl font-bold text-gray-800">Auction Management</h2>
+        <button wire:click="create" class="bg-sigmaven-admin-blue text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+            Add Auction
+        </button>
+    </div>
+
+
+
+    <div class="flex flex-col md:flex-row gap-4 mb-6">
+        <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search book name..." class="border-gray-300 rounded-lg focus:ring-sigmaven-admin-blue focus:border-sigmaven-admin-blue flex-1 text-sm">
+        <select wire:model.live="statusFilter" class="border-gray-300 rounded-lg focus:ring-sigmaven-admin-blue focus:border-sigmaven-admin-blue w-full md:w-48 text-sm">
+            <option value="">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="ended">Ended</option>
+            <option value="cancelled">Cancelled</option>
+        </select>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-gray-600">
+            <thead class="bg-gray-50 text-gray-500 uppercase">
+                <tr>
+                    <th class="px-6 py-3 font-semibold">Book</th>
+                    <th class="px-6 py-3 font-semibold">Starting Price</th>
+                    <th class="px-6 py-3 font-semibold">Current Bid</th>
+                    <th class="px-6 py-3 font-semibold">Ends At</th>
+                    <th class="px-6 py-3 font-semibold">Status</th>
+                    <th class="px-6 py-3 font-semibold">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                @forelse($auctions as $auction)
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 font-medium text-gray-800">{{ $auction->product->title ?? $auction->product->name }}</td>
+                        <td class="px-6 py-4 text-gray-500">Rp {{ number_format($auction->starting_price) }}</td>
+                        <td class="px-6 py-4 font-medium text-sigmaven-gold">Rp {{ number_format($auction->current_price) }}</td>
+                        <td class="px-6 py-4">{{ \Carbon\Carbon::parse($auction->ends_at)->format('d M Y, H:i') }}</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 rounded-full text-xs font-medium {{ $auction->status == 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800' }}">
+                                {{ ucfirst($auction->status) }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <button wire:click="edit({{ $auction->id }})" class="text-blue-600 hover:underline mr-3 font-medium">Edit</button>
+                            <button wire:click="delete({{ $auction->id }})" wire:confirm="Permanently delete this auction?" class="text-red-600 hover:underline font-medium">Delete</button>
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="6" class="px-6 py-12 text-center text-gray-400">No auction data found.</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="mt-4">
+        {{ $auctions->links() }}
+    </div>
+
+    <!-- Modal Form -->
+    @if($showModal)
+    <div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" wire:click="closeModal"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <form wire:submit.prevent="store">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">{{ $auctionId ? 'Edit Auction' : 'Add Auction' }}</h3>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">Book (Product)</label>
+                            <select wire:model="product_id" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                                <option value="">Pilih Produk</option>
+                                @foreach($products as $product)
+                                    <option value="{{ $product->id }}">{{ $product->title }}</option>
+                                @endforeach
+                            </select>
+                            @error('product_id') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">Starting Price (Rp)</label>
+                            <input type="number" wire:model="starting_price" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                            @error('starting_price') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                        </div>
+
+                        <div class="mb-4 grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Start Time</label>
+                                <input type="datetime-local" wire:model="starts_at" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                                @error('starts_at') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">End Time</label>
+                                <input type="datetime-local" wire:model="ends_at" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                                @error('ends_at') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">Status</label>
+                            <select wire:model="status" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
+                                <option value="active">Active</option>
+                                <option value="ended">Ended</option>
+                                <option value="cancelled">Cancelled</option>
+                            </select>
+                            @error('status') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-sigmaven-admin-blue text-base font-medium text-white hover:bg-blue-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm">
+                            Save
+                        </button>
+                        <button type="button" wire:click="closeModal" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    @endif
+</div>
+
+
+
+===================================================================
+FILE: resources\views\layouts\v2\admin.blade.php
+===================================================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ config('app.name', 'Sigmaven') }} — Admin Panel</title>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @livewireStyles
+</head>
+<body class="bg-background text-text-primary font-sans flex h-screen overflow-hidden min-w-[320px]">
+    
+    <!-- Sidebar -->
+    <aside class="w-64 bg-admin-sidebar text-white flex flex-col flex-shrink-0 hidden md:flex">
+        <!-- Logo -->
+        <div class="h-16 flex items-center px-6 border-b border-white/10 gap-3">
+            <img src="{{ asset('images/logo.png') }}" alt="Sigmaven" class="h-8 w-auto brightness-0 invert opacity-90">
+            <span class="text-lg font-bold tracking-wide font-serif hidden lg:inline">Admin</span>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="flex-1 px-3 py-5 space-y-0.5 overflow-y-auto scrollbar-hide">
+            <p class="text-label text-white/30 px-4 pt-2 pb-3">Main Menu</p>
+
+            <a href="{{ route('admin.dashboard') }}" 
+               class="{{ request()->routeIs('admin.dashboard') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                </svg>
+                <span class="hidden lg:inline">Dashboard</span>
+                <span class="lg:hidden text-xs">Dash</span>
+            </a>
+
+            <a href="{{ route('admin.products') }}" 
+               class="{{ request()->routeIs('admin.products') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                </svg>
+                <span class="hidden lg:inline">Products</span>
+                <span class="lg:hidden text-xs">Prod</span>
+            </a>
+
+            <a href="{{ route('admin.genres') }}" 
+               class="{{ request()->routeIs('admin.genres') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                </svg>
+                <span class="hidden lg:inline">Genres</span>
+                <span class="lg:hidden text-xs">Genr</span>
+            </a>
+
+            <a href="{{ route('admin.orders') }}" 
+               class="{{ request()->routeIs('admin.orders') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                </svg>
+                <span class="hidden lg:inline">Orders</span>
+                <span class="lg:hidden text-xs">Ord</span>
+            </a>
+
+            <a href="{{ route('admin.users') }}" 
+               class="{{ request()->routeIs('admin.users') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                </svg>
+                <span class="hidden lg:inline">Users</span>
+                <span class="lg:hidden text-xs">Usr</span>
+            </a>
+
+            <p class="text-label text-white/30 px-4 pt-4 pb-3">Features</p>
+
+            <a href="{{ route('admin.games') }}" 
+               class="{{ request()->routeIs('admin.games') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"></path>
+                </svg>
+                <span class="hidden lg:inline">Sigame</span>
+                <span class="lg:hidden text-xs">Game</span>
+            </a>
+
+            <a href="{{ route('admin.auctions') }}" 
+               class="{{ request()->routeIs('admin.auctions') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                </svg>
+                <span class="hidden lg:inline">Auctions</span>
+                <span class="lg:hidden text-xs">Auct</span>
+            </a>
+
+            <a href="{{ route('admin.coupons') }}" 
+               class="{{ request()->routeIs('admin.coupons') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"></path>
+                </svg>
+                <span class="hidden lg:inline">Coupons</span>
+                <span class="lg:hidden text-xs">Coup</span>
+            </a>
+        </nav>
+
+        <!-- User & Logout -->
+        <div class="p-4 border-t border-white/10">
+            <div class="flex items-center gap-3 mb-3 px-2">
+                <div class="w-8 h-8 bg-accent/30 rounded-full flex items-center justify-center text-sm font-bold text-white">
+                    {{ substr(auth()->user()->name ?? 'A', 0, 1) }}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium truncate text-white">{{ auth()->user()->name ?? 'Admin' }}</p>
+                    <p class="text-xs text-white/50 truncate">Administrator</p>
+                </div>
+            </div>
+            <form method="POST" action="{{ route('logout') }}">
+                @csrf
+                <button type="submit" class="w-full flex items-center gap-2 px-4 py-2 text-sm text-white/60 hover:text-white hover:bg-error/20 rounded-md transition-all duration-200">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                    </svg>
+                    Logout
+                </button>
+            </form>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+        <!-- Admin Header -->
+        <header class="h-16 bg-admin-header shadow-sm flex items-center px-4 sm:px-6 border-b border-white/10 flex-shrink-0">
+            <div class="flex items-center justify-between w-full">
+                <div class="flex items-center gap-2 text-sm">
+                    <a href="{{ route('home') }}" target="_blank" 
+                       class="text-white/60 hover:text-white transition flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                        </svg>
+                        View Site
+                    </a>
+                    <span class="text-white/30">/</span>
+                    <span class="font-semibold text-white">
+                        @if(request()->routeIs('admin.dashboard')) Dashboard
+                        @elseif(request()->routeIs('admin.products')) Products
+                        @elseif(request()->routeIs('admin.genres')) Genres
+                        @elseif(request()->routeIs('admin.orders')) Orders
+                        @elseif(request()->routeIs('admin.users')) Users
+                        @elseif(request()->routeIs('admin.games')) Sigame
+                        @elseif(request()->routeIs('admin.auctions')) Auctions
+                        @elseif(request()->routeIs('admin.coupons')) Coupons
+                        @else Admin Panel
+                        @endif
+                    </span>
+                </div>
+
+                <!-- Mobile menu trigger (shown on mobile only) -->
+                <div class="flex items-center gap-3">
+                    <div class="hidden sm:flex items-center gap-2">
+                        <div class="w-7 h-7 bg-accent/30 rounded-full flex items-center justify-center text-xs font-bold text-white">
+                            {{ substr(auth()->user()->name ?? 'A', 0, 1) }}
+                        </div>
+                        <span class="text-sm text-white/80 hidden md:inline">{{ auth()->user()->name ?? 'Admin' }}</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+        
+        <div class="flex-1 overflow-y-auto p-4 sm:p-6 bg-background">
+            {{ $slot }}
+        </div>
+    </main>
+
+    <!-- Mobile Admin Menu Button -->
+    <div class="md:hidden fixed bottom-5 right-5 z-50">
+        <button id="adminMobileMenuBtn" 
+                class="bg-primary text-white p-3.5 rounded-full shadow-modal hover:bg-primary-dark transition-all duration-200 active:scale-95">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Mobile Menu Overlay -->
+    <div id="adminMobileMenu" class="md:hidden fixed inset-0 bg-black/60 z-40 hidden backdrop-blur-sm" onclick="closeAdminMobileMenu()">
+        <div class="absolute right-0 top-0 h-full w-72 bg-admin-sidebar text-white shadow-modal" onclick="event.stopPropagation()">
+            <!-- Mobile Header -->
+            <div class="h-16 flex items-center justify-between px-6 border-b border-white/10">
+                <div class="flex items-center gap-3">
+                    <img src="{{ asset('images/logo.png') }}" alt="Sigmaven" class="h-7 w-auto brightness-0 invert opacity-90">
+                    <span class="text-base font-bold tracking-wide font-serif text-white">Menu</span>
+                </div>
+                <button onclick="closeAdminMobileMenu()" 
+                        class="text-white/50 hover:text-white transition p-1 rounded-md hover:bg-white/10">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <nav class="px-3 py-4 space-y-0.5 overflow-y-auto max-h-[calc(100vh-64px)] scrollbar-hide">
+                @include('layouts.partials.admin-mobile-menu')
+            </nav>
+        </div>
+    </div>
+
+    <script>
+        function toggleAdminMobileMenu() {
+            document.getElementById('adminMobileMenu').classList.toggle('hidden');
+        }
+        
+        function closeAdminMobileMenu() {
+            document.getElementById('adminMobileMenu').classList.add('hidden');
+        }
+        
+        document.getElementById('adminMobileMenuBtn').addEventListener('click', toggleAdminMobileMenu);
+    </script>
+
+    @include('layouts.partials.toast')
+    @livewireScripts
+</body>
+</html>
+
+
+
+===================================================================
+FILE: resources\views\layouts\v2\partials\admin-mobile-menu.blade.php
+===================================================================
+<a href="{{ route('admin.dashboard') }}" 
+   class="{{ request()->routeIs('admin.dashboard') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+    </svg>
+    Dashboard
+</a>
+
+<a href="{{ route('admin.products') }}" 
+   class="{{ request()->routeIs('admin.products') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+    </svg>
+    Products
+</a>
+
+<a href="{{ route('admin.genres') }}" 
+   class="{{ request()->routeIs('admin.genres') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+    </svg>
+    Genres
+</a>
+
+<a href="{{ route('admin.orders') }}" 
+   class="{{ request()->routeIs('admin.orders') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+    </svg>
+    Orders
+</a>
+
+<a href="{{ route('admin.users') }}" 
+   class="{{ request()->routeIs('admin.users') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+    </svg>
+    Users
+</a>
+
+<p class="text-label text-white/30 px-4 pt-4 pb-3">Features</p>
+
+<a href="{{ route('admin.games') }}" 
+   class="{{ request()->routeIs('admin.games') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"></path>
+    </svg>
+    Sigame
+</a>
+
+<a href="{{ route('admin.auctions') }}" 
+   class="{{ request()->routeIs('admin.auctions') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
+    </svg>
+    Auctions
+</a>
+
+<a href="{{ route('admin.coupons') }}" 
+   class="{{ request()->routeIs('admin.coupons') ? 'admin-nav-link-active' : 'admin-nav-link' }}">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"></path>
+    </svg>
+    Coupons
+</a>
+
+<div class="p-4 border-t border-white/10 mt-4">
+    <div class="flex items-center gap-3 mb-3 px-2">
+        <div class="w-8 h-8 bg-accent/25 rounded-full flex items-center justify-center text-sm font-bold text-white">
+            {{ substr(auth()->user()->name ?? 'A', 0, 1) }}
+        </div>
+        <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium truncate text-white">{{ auth()->user()->name ?? 'Admin' }}</p>
+            <p class="text-xs text-white/50 truncate">Administrator</p>
+        </div>
+    </div>
+    <form method="POST" action="{{ route('logout') }}">
+        @csrf
+        <button type="submit" 
+                class="w-full flex items-center gap-2 px-4 py-2 text-sm text-white/60 hover:text-white hover:bg-error/20 rounded-md transition-all duration-200">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+            </svg>
+            Logout
+        </button>
+    </form>
+</div>
+
+
+
+===================================================================
+FILE: app\Http\Middleware\RoleMiddleware.php
+===================================================================
+<?php
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class RoleMiddleware {
+    public function handle(Request $request, Closure $next, string $role): Response {
+        if (!$request->user() || $request->user()->role !== $role) {
+            abort(403, 'Unauthorized Access.');
+        }
+        return $next($request);
+    }
+}
+
+
+

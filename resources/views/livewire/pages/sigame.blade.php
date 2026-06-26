@@ -1,4 +1,4 @@
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="{ openModal: false, selectedGameId: null, selectedGameTitle: '', selectedGamePoints: 0 }">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="{ openModal: false, selectedGameId: null, selectedGameName: '', selectedGamePoints: 0 }">
     <div class="bg-sigmaven-forest rounded-lg p-8 text-white mb-12 flex flex-col md:flex-row justify-between items-center">
         <div>
             <h1 class="text-3xl font-serif font-bold mb-2">Pusat Sigame</h1>
@@ -15,7 +15,6 @@
             @php $hasAccess = in_array($game->id, $userAccess); @endphp
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                 <div class="aspect-video bg-sigmaven-admin-blue relative flex items-center justify-center">
-                    <!-- Placeholder Cover -->
                     <svg class="w-16 h-16 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     
                     @if($hasAccess)
@@ -29,15 +28,15 @@
                 </div>
                 
                 <div class="p-6">
-                    <h3 class="font-serif font-bold text-xl text-sigmaven-charcoal mb-2">{{ $game->title }}</h3>
+                    <h3 class="font-serif font-bold text-xl text-sigmaven-charcoal mb-2">{{ $game->name }}</h3>
                     <p class="text-gray-600 text-sm mb-6">{{ $game->description }}</p>
                     
                     @if($hasAccess)
-                        <a href="{{ route('sigame.play', $game->slug) }}" class="btn btn-primary w-full text-center">Mainkan Sekarang</a>
+                        <a href="{{ route('sigame.play', $game->slug ?? $game->id) }}" class="btn btn-primary w-full text-center">Mainkan Sekarang</a>
                     @else
                         <div class="flex items-center justify-between">
                             <span class="font-bold text-sigmaven-gold">{{ number_format($game->required_points) }} Poin</span>
-                            <button @click="openModal = true; selectedGameId = {{ $game->id }}; selectedGameTitle = '{{ addslashes($game->title) }}'; selectedGamePoints = {{ $game->required_points }}" class="btn btn-secondary text-sm" {{ $userPoints < $game->required_points ? 'disabled' : '' }}>
+                            <button @click="openModal = true; selectedGameId = {{ $game->id }}; selectedGameName = '{{ addslashes($game->name) }}'; selectedGamePoints = {{ $game->required_points }}" class="btn btn-secondary text-sm" {{ $userPoints < $game->required_points ? 'disabled' : '' }}>
                                 {{ $userPoints < $game->required_points ? 'Poin Kurang' : 'Tukar Akses' }}
                             </button>
                         </div>
@@ -47,7 +46,6 @@
         @endforeach
     </div>
 
-    <!-- Confirmation Modal -->
     <div x-show="openModal" class="fixed inset-0 z-50 overflow-y-auto" style="display: none;">
         <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
             <div x-show="openModal" x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="fixed inset-0 transition-opacity" aria-hidden="true">
@@ -64,7 +62,7 @@
                     <div class="mt-3 text-center sm:mt-5">
                         <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">Konfirmasi Penukaran Poin</h3>
                         <div class="mt-2 text-sm text-gray-500">
-                            <p>Anda akan menukarkan <span class="font-bold text-sigmaven-gold" x-text="selectedGamePoints"></span> poin untuk mendapatkan akses game <span class="font-bold text-sigmaven-charcoal" x-text="selectedGameTitle"></span>.</p>
+                            <p>Anda akan menukarkan <span class="font-bold text-sigmaven-gold" x-text="selectedGamePoints"></span> poin untuk mendapatkan akses game <span class="font-bold text-sigmaven-charcoal" x-text="selectedGameName"></span>.</p>
                             <p class="mt-2">Sisa poin Anda setelah penukaran: <span class="font-bold">{{ number_format($userPoints) }}</span> - <span x-text="selectedGamePoints"></span>.</p>
                             <p class="mt-1 text-red-500">Aksi ini tidak dapat dibatalkan.</p>
                         </div>

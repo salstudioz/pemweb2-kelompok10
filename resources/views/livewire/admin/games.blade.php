@@ -92,12 +92,12 @@
                             @error('description') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
                         </div>
 
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700">Poin Dibutuhkan</label>
-                            <input type="number" wire:model="required_points" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
-                            @error('required_points') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                        <div>
+                            <label class="block text-sm font-medium text-text-secondary">Poin Required</label>
+                            <input type="number" wire:model="required_points" class="w-full rounded-sm border-border-color" required>
+                            @error('required_points') <span class="text-error text-sm">{{ $message }}</span> @enderror
                         </div>
-
+      
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-700">URL Game (Opsional)</label>
                             <input type="text" wire:model="url" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sigmaven-admin-blue focus:ring-sigmaven-admin-blue">
